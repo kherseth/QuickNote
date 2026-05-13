@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuickSnippets</title>
+  <style>
+    #qs-app {
+      --bg: #0f172a; --surface: #1e293b; --text: #e2e8f0; --muted: #94a3b8;
+      --accent: #38bdf8; --accent-hover: #0ea5e9; --danger: #f87171;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text); padding: 2rem;
+      max-width: 800px; margin: 2rem auto; border-radius: 12px;
+    }
+    #qs-app * { box-sizing: border-box; }
+    #qs-app h1 { margin-bottom: 1rem; font-size: 1.6rem; }
+    #qs-app .input-group { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.5rem; }
+    #qs-app input, #qs-app textarea {
+      background: var(--surface); color: var(--text); border: 1px solid #334155;
+      padding: 0.75rem; border-radius: 8px; font: inherit; width: 100%;
+      pointer-events: auto; user-select: text; -webkit-user-select: text;
+      transition: border-color 0.15s, outline 0.15s;
+    }
+    #qs-app textarea { resize: vertical; min-height: 80px; }
+    #qs-app input:focus, #qs-app textarea:focus {
+      outline: 2px solid var(--accent); border-color: transparent;
+    }
+    #qs-app button {
+      background: var(--accent); color: #0f172a; border: none; padding: 0.75rem 1.25rem;
+      border-radius: 8px; cursor: pointer; font-weight: 600; transition: background 0.15s;
+    }
+    #qs-app button:hover { background: var(--accent-hover); }
+    #qs-app .snippet {
+      background: var(--surface); padding: 1rem; border-radius: 8px;
+      margin-bottom: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+    }
+    #qs-app .snippet-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    #qs-app .snippet-name { font-weight: 600; font-size: 1.1rem; }
+    #qs-app .snippet-meta { color: var(--muted); font-size: 0.85rem; }
+    #qs-app .snippet-content {
+      background: #0b1120; padding: 0.75rem; border-radius: 6px;
+      overflow-x: auto; font-family: ui-monospace, monospace; white-space: pre-wrap;
+      max-height: 150px; overflow-y: auto; margin-bottom: 0.75rem;
+    }
+    #qs-app .actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+    #qs-app .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
+    #qs-app .btn-danger { background: var(--danger); color: white; }
+    #qs-app .btn-danger:hover { background: #ef4444; }
+    #qs-app .toast {
+      position: fixed; bottom: 1rem; right: 1rem; background: var(--surface);
+      padding: 0.75rem 1rem; border-radius: 8px; box-shadow: 0 4px 12px rgb(0 0 0 / 0.4);
+      transform: translateY(150%); transition: 0.3s; z-index: 100;
+    }
+    #qs-app .toast.show { transform: translateY(0); }
+    #qs-app .empty { text-align: center; color: var(--muted); margin-top: 2rem; }
+  </style>
+</head>
+<body>
+  <div id="qs-app">
+    <h1>📋 QuickSnippets</h1>
+    <div class="input-group">
+      <input type="text" id="nameInput" placeholder="Snippet name..." autocomplete="off" spellcheck="false">
+      <textarea id="contentInput" placeholder="Paste code, configs, notes..."></textarea>
+      <button id="saveBtn">💾 Save Snippet</button>
+    </div>
+    <input type="text" id="searchBox" placeholder="🔍 Search by name or content...">
+    <div id="snippetList"></div>
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <script>
+    (() => {
+      const scope = '#qs-app ';
+      const $ = id => document.querySelector(`${scope}[id="${id}"]`);
+      const createEl = (tag, props = {}, text = null) => {
+        const el = document.createElement(tag);
+        Object.entries(props).forEach(([k, v]) => el.setAttribute(k, v));
+        if (text !== null) el.textContent = text;
+        return el;
+      };
+
+      let snippets = [];
+      try { snippets = JSON.parse(localStorage.getItem('quicksnippets') || '[]'); } catch { snippets = []; }
+
+      const render = (filter = '') => {
+        const list = $('snippetList');
+        list.innerHTML = '';
+        const query = filter.toLowerCase();
+        const filtered = snippets.filter(s => 
+          s.name.toLowerCase().includes(query) || s.content.toLowerCase().includes(query)
+        );
+
+        if (!filtered.length) {
+          list.appendChild(createEl('p', { class: 'empty' }, filtered.length ? 'No matches.' : 'No snippets saved. Add one above!'));
+          return;
+        }
+
+        filtered.forEach(s => {
+          const card = createEl('div', { class: 'snippet' });
+          card.appendChild(createEl('div', { class: 'snippet-header' }, [
+            createEl('span', { class: 'snippet-name' }, s.name),
+            createEl('span', { class: 'snippet-meta' }, new Date(s.id).toLocaleString())
+          ]));
+          card.appendChild(createEl('div', { class: 'snippet-content' }, s.content));
+          
+          const actions = createEl('div', { class: 'actions' });
+          const copyBtn = createEl('button', { class: 'btn-sm', textContent: '📋 Copy' });
+          copyBtn.addEventListener('click', () => copyText(s.content));
+          const delBtn = createEl('button', { class: 'btn-sm btn-danger', textContent: '🗑 Delete' });
+          delBtn.addEventListener('click', () => deleteSnippet(s.id));
+          actions.append(copyBtn, delBtn);
+          card.appendChild(actions);
+          list.appendChild(card);
+        });
+      };
+
+      const copyText = async text => {
+        try {
+          await navigator.clipboard.writeText(text);
+          showToast('✅ Copied to clipboard!');
+        } catch {
+          const ta = document.createElement('textarea');
+          ta.value = text; document.body.appendChild(ta);
+          ta.select(); document.execCommand('copy');
+          document.body.removeChild(ta);
+          showToast('✅ Copied (fallback)!');
+        }
+      };
+
+      const showToast = msg => {
+        const t = $('toast');
+        t.textContent = msg;
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 2000);
+      };
+
+      const saveSnippet = () => {
+        const name = $('nameInput').value.trim();
+        const content = $('contentInput').value.trim();
+        if (!name || !content) return showToast('⚠️ Name & content required.');
+        snippets.unshift({ id: Date.now(), name, content });
+        localStorage.setItem('quicksnippets', JSON.stringify(snippets));
+        $('nameInput').value = '';
+        $('contentInput').value = '';
+        render($('searchBox').value);
+        showToast('💾 Snippet saved!');
+      };
+
+      const deleteSnippet = id => {
+        snippets = snippets.filter(s => s.id !== id);
+        localStorage.setItem('quicksnippets', JSON.stringify(snippets));
+        render($('searchBox').value);
+        showToast('🗑 Deleted.');
+      };
+
+      $('saveBtn').addEventListener('click', saveSnippet);
+      $('searchBox').addEventListener('input', e => render(e.target.value));
+      $('nameInput').addEventListener('keydown', e => e.key === 'Enter' && $('contentInput').focus());
+      $('contentInput').addEventListener('keydown', e => e.ctrlKey && e.key === 'Enter' && saveSnippet());
+      
+      render();
+    })();
+  </script>
+</body>
+</html>
